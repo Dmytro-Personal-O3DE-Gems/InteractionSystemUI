@@ -1,0 +1,30 @@
+{
+    "gem_name": "InteractionSystemUI",
+    "version": "1.0.0",
+    "display_name": "Interaction System UI",
+    "license": "MIT",
+    "license_url": "https://mit-license.org/",
+    "origin": "Dmytro Shyshkin",
+    "origin_url": "",
+    "type": "Code",
+    "summary": "Optional UI layer for the Interaction System gem: an on-screen interaction prompt built with LyShine that shows the key hint and the action labels (press / hold) of the interactable the player is looking at.",
+    "canonical_tags": [
+        "Gem"
+    ],
+    "user_tags": [
+        "InteractionSystemUI"
+    ],
+    "platforms": [
+        "Linux","Windows","Android","iOS"
+    ],
+    "icon_path": "",
+    "requirements": "Requires the InteractionSystem and LyShine gems (enabled automatically through dependencies).",
+    "documentation_url": "",
+    "dependencies": [
+    ],
+    "repo_uri": "https://github.com/Dmytro-Personal-O3DE-Gems/InteractionSystemUI",
+    "compatible_engines": [
+    ],
+    "engine_api_dependencies":[
+    ]
+}
