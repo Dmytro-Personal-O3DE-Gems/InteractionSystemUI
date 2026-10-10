@@ -5,6 +5,7 @@
 #include <InteractionSystemUI/InteractionSystemUITypeIds.h>
 
 #include <Clients/InteractionSystemUISystemComponent.h>
+#include "InteractionPromptComponent.h"
 
 namespace InteractionSystemUI
 {
@@ -21,6 +22,7 @@ namespace InteractionSystemUI
         // This happens through the [MyComponent]::Reflect() function.
         m_descriptors.insert(m_descriptors.end(), {
             InteractionSystemUISystemComponent::CreateDescriptor(),
+            InteractionPromptComponent::CreateDescriptor(),
             });
     }
 

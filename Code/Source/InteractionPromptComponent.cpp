@@ -1,0 +1,265 @@
+#include "InteractionPromptComponent.h"
+
+#include <AzCore/Component/Entity.h>
+#include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Serialization/EditContext.h>
+#include <AzCore/RTTI/BehaviorContext.h>
+
+#include <InteractionSystem/InteractableInterface.h>   // what the target supports (InteractionInfo)
+
+#include <LyShine/Bus/World/UiCanvasRefBus.h>   // canvas id from "UI Canvas Asset Ref"
+#include <LyShine/Bus/UiCanvasBus.h>            // find element by name
+#include <LyShine/Bus/UiElementBus.h>           // show / hide
+#include <LyShine/Bus/UiTextBus.h>              // label text
+
+namespace InteractionSystemUI
+{
+    AZ_COMPONENT_IMPL(InteractionPromptComponent, "InteractionPromptComponent", "{CDB5EDAC-2546-487A-86CB-DE1322C4AFFE}");
+
+    void InteractionPromptComponent::Activate()
+    {
+        // "UI Canvas Asset Ref" is a required service, so it is already active here. With "Load automatically"
+        // on, it has already loaded the canvas inside its own Activate(), so the id is available right away.
+        // The canvas id itself is not kept: it is only needed to find the elements.
+        AZ::EntityId canvasId;
+        UiCanvasRefBus::EventResult(canvasId, GetEntityId(), &UiCanvasRefBus::Events::GetCanvas);
+        if (!canvasId.IsValid())
+        {
+            AZ_Warning("InteractionPrompt", false,
+                "Entity '%s' has no loaded UI canvas. Enable 'Load automatically' on its UI Canvas Asset Ref.",
+                GetEntity()->GetName().c_str());
+            return; // nothing to show, so do not listen to the finder either
+        }
+
+        // Element ids are new on every canvas load, so they are looked up here and never serialized.
+        m_pressRowId = FindElement(canvasId, m_pressRowName);
+        m_holdRowId = FindElement(canvasId, m_holdRowName);
+        m_pressOrHoldRowId = FindElement(canvasId, m_pressOrHoldRowName);
+
+        // Labels are looked up inside their rows, so the same name may be reused in different rows.
+        m_pressRowLabelId = FindChildElement(m_pressRowId, m_pressRowLabelName);
+        m_holdRowLabelId = FindChildElement(m_holdRowId, m_holdRowLabelName);
+        m_pressOrHoldPressLabelId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldPressLabelName);
+        m_pressOrHoldHoldLabelId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldHoldLabelName);
+
+        // Pull: the finder may already have a target (e.g. the player spawned facing a door).
+        // OnTargetChanged is sent only on a change, so without this the prompt would stay empty until the target changes.
+        // If the finder is not active yet, the id stays invalid and all rows are hidden (the start state).
+        AZ::EntityId currentTargetId;
+        InteractionSystem::InteractionOverlapFinderRequestBus::EventResult(
+            currentTargetId, GetEntityId(), &InteractionSystem::InteractionOverlapFinderRequests::GetCurrentTarget);
+        UpdatePrompt(currentTargetId);
+
+        // Push: every later change. The finder sends to its owner entity, which is this entity.
+        InteractionSystem::InteractionOverlapFinderNotificationBus::Handler::BusConnect(GetEntityId());
+    }
+
+    void InteractionPromptComponent::Deactivate()
+    {
+        AZ::TickBus::Handler::BusDisconnect();
+        InteractionSystem::InteractionOverlapFinderNotificationBus::Handler::BusDisconnect();
+
+        // The canvas is released when the UI Canvas Asset Ref deactivates (right after this component),
+        // so these ids are about to become dead anyway.
+        m_pressRowId.SetInvalid();
+        m_holdRowId.SetInvalid();
+        m_pressOrHoldRowId.SetInvalid();
+        m_pressRowLabelId.SetInvalid();
+        m_holdRowLabelId.SetInvalid();
+        m_pressOrHoldPressLabelId.SetInvalid();
+        m_pressOrHoldHoldLabelId.SetInvalid();
+
+        m_targetId.SetInvalid();
+        m_shownPressLabel.clear();
+        m_shownHoldLabel.clear();
+    }
+
+    void InteractionPromptComponent::OnTargetChanged([[maybe_unused]] AZ::EntityId previousTargetId, AZ::EntityId newTargetId)
+    {
+        UpdatePrompt(newTargetId);
+    }
+
+    void InteractionPromptComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    {
+        // Polling instead of events: a label can change for reasons the target does not know about
+        // (e.g. the player picked up a key), so asking every frame catches all of them.
+        RefreshLabels(false);
+    }
+
+    AZ::EntityId InteractionPromptComponent::FindElement(AZ::EntityId canvasId, const AZStd::string& elementName) const
+    {
+        AZ::EntityId elementId;
+        UiCanvasBus::EventResult(elementId, canvasId, &UiCanvasBus::Events::FindElementEntityIdByName, elementName);
+        AZ_Warning("InteractionPrompt", elementId.IsValid(),
+            "UI element '%s' was not found on the canvas. Check the name in the Interaction Prompt component.",
+            elementName.c_str());
+        return elementId;
+    }
+
+    AZ::EntityId InteractionPromptComponent::FindChildElement(AZ::EntityId parentId, const AZStd::string& elementName) const
+    {
+        // Same search as on the canvas (all descendants, first match), but starting from the given element.
+        AZ::EntityId elementId;
+        UiElementBus::EventResult(elementId, parentId, &UiElementBus::Events::FindDescendantEntityIdByName, elementName);
+        AZ_Warning("InteractionPrompt", !parentId.IsValid() || elementId.IsValid(),
+            "UI element '%s' was not found inside its row. Check the name in the Interaction Prompt component.",
+            elementName.c_str());
+        return elementId;
+    }
+
+    void InteractionPromptComponent::UpdatePrompt(AZ::EntityId targetId)
+    {
+        bool showPress = false;
+        bool showHold = false;
+        bool showPressOrHold = false;
+
+        // The finder only reports entities with an Interactable, but the target may have been deactivated since.
+        // Without this check EventResult would leave the default InteractionInfo (Press) and show a wrong prompt.
+        const bool hasTarget = targetId.IsValid() && InteractionSystem::InteractableRequestBus::HasHandlers(targetId);
+        if (hasTarget)
+        {
+            InteractionSystem::InteractionInfo info;
+            InteractionSystem::InteractableRequestBus::EventResult(
+                info, targetId, &InteractionSystem::InteractableRequests::GetInteractionInfo);
+
+            switch (info.m_mode)
+            {
+            case InteractionSystem::InteractionMode::Press:
+                showPress = true;
+                break;
+            case InteractionSystem::InteractionMode::Hold:
+                showHold = true;
+                break;
+            case InteractionSystem::InteractionMode::PressOrHold:
+                showPressOrHold = true;
+                break;
+            }
+        }
+
+        if (hasTarget)
+        {
+            m_targetId = targetId;
+            // What is on screen belongs to the previous target: write the new labels unconditionally,
+            // even if the text happens to be the same. Done before showing the row, so no stale frame is visible.
+            RefreshLabels(true);
+            AZ::TickBus::Handler::BusConnect(); // connecting twice is a no-op
+        }
+        else
+        {
+            m_targetId.SetInvalid();
+            AZ::TickBus::Handler::BusDisconnect();
+        }
+
+        // An invalid element id (not found) has no handler, so these calls simply do nothing.
+        UiElementBus::Event(m_pressRowId, &UiElementBus::Events::SetIsEnabled, showPress);
+        UiElementBus::Event(m_holdRowId, &UiElementBus::Events::SetIsEnabled, showHold);
+        UiElementBus::Event(m_pressOrHoldRowId, &UiElementBus::Events::SetIsEnabled, showPressOrHold);
+    }
+
+    void InteractionPromptComponent::RefreshLabels(bool force)
+    {
+        // The target may have been deactivated without the finder noticing yet: keep the last labels then.
+        if (!InteractionSystem::InteractableRequestBus::HasHandlers(m_targetId))
+        {
+            return;
+        }
+
+        AZStd::string pressLabel;
+        InteractionSystem::InteractableRequestBus::EventResult(
+            pressLabel, m_targetId, &InteractionSystem::InteractableRequests::GetInteractableLabel,
+            GetEntityId(), InteractionSystem::InteractionType::Press);
+        if (force || pressLabel != m_shownPressLabel)
+        {
+            SetLabelText(m_pressRowLabelId, m_pressOrHoldPressLabelId, pressLabel);
+            m_shownPressLabel = pressLabel;
+        }
+
+        AZStd::string holdLabel;
+        InteractionSystem::InteractableRequestBus::EventResult(
+            holdLabel, m_targetId, &InteractionSystem::InteractableRequests::GetInteractableLabel,
+            GetEntityId(), InteractionSystem::InteractionType::Hold);
+        if (force || holdLabel != m_shownHoldLabel)
+        {
+            SetLabelText(m_holdRowLabelId, m_pressOrHoldHoldLabelId, holdLabel);
+            m_shownHoldLabel = holdLabel;
+        }
+    }
+
+    void InteractionPromptComponent::SetLabelText(
+        AZ::EntityId singleRowLabelId, AZ::EntityId pressOrHoldLabelId, const AZStd::string& label)
+    {
+        // Both rows get the text, even the hidden one: then switching rows never shows an outdated label.
+        UiTextBus::Event(singleRowLabelId, &UiTextBus::Events::SetText, label);
+        UiTextBus::Event(pressOrHoldLabelId, &UiTextBus::Events::SetText, label);
+    }
+
+    void InteractionPromptComponent::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+        {
+            serializeContext->Class<InteractionPromptComponent, AZ::Component>()
+                ->Version(1)
+                ->Field("PressRowName", &InteractionPromptComponent::m_pressRowName)
+                ->Field("HoldRowName", &InteractionPromptComponent::m_holdRowName)
+                ->Field("PressOrHoldRowName", &InteractionPromptComponent::m_pressOrHoldRowName)
+                ->Field("PressRowLabelName", &InteractionPromptComponent::m_pressRowLabelName)
+                ->Field("HoldRowLabelName", &InteractionPromptComponent::m_holdRowLabelName)
+                ->Field("PressOrHoldPressLabelName", &InteractionPromptComponent::m_pressOrHoldPressLabelName)
+                ->Field("PressOrHoldHoldLabelName", &InteractionPromptComponent::m_pressOrHoldHoldLabelName)
+                ;
+
+            if (AZ::EditContext* editContext = serializeContext->GetEditContext())
+            {
+                editContext->Class<InteractionPromptComponent>("Interaction Prompt",
+                    "Shows the UI canvas element that matches the interaction mode of the interactable the owner is looking at.")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                    ->Attribute(AZ::Edit::Attributes::Category, "Interaction")
+                    ->Attribute(AZ::Edit::Attributes::Icon, "Icons/Components/Component_Placeholder.svg")
+                    ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC_CE("Game"))
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressRowName,
+                        "Press Row", "Name of the canvas element shown when the target supports only a press.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_holdRowName,
+                        "Hold Row", "Name of the canvas element shown when the target supports only a hold.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldRowName,
+                        "Press Or Hold Row", "Name of the canvas element shown when the target supports both a press and a hold.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressRowLabelName,
+                        "Press Row Label", "Name of the label text inside the Press Row. Searched only inside that row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_holdRowLabelName,
+                        "Hold Row Label", "Name of the label text inside the Hold Row. Searched only inside that row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldPressLabelName,
+                        "Press Or Hold: Press Label", "Name of the press label text inside the Press Or Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldHoldLabelName,
+                        "Press Or Hold: Hold Label", "Name of the hold label text inside the Press Or Hold Row.")
+                    ;
+            }
+        }
+
+        if (AZ::BehaviorContext* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+        {
+            behaviorContext->Class<InteractionPromptComponent>("InteractionPrompt Component Group")
+                ->Attribute(AZ::Script::Attributes::Category, "Interaction")
+                ;
+        }
+    }
+
+    void InteractionPromptComponent::GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
+    {
+        provided.push_back(AZ_CRC_CE("InteractionPromptComponentService"));
+    }
+
+    void InteractionPromptComponent::GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
+    {
+        incompatible.push_back(AZ_CRC_CE("InteractionPromptComponentService"));
+    }
+
+    void InteractionPromptComponent::GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
+    {
+        // The canvas comes from "UI Canvas Asset Ref" on the same entity; this also makes it activate first.
+        // The target finder is NOT listed: it sits on the camera (another entity) and services work per entity only.
+        required.push_back(AZ_CRC_CE("UiCanvasRefService"));
+    }
+
+    void InteractionPromptComponent::GetDependentServices([[maybe_unused]] AZ::ComponentDescriptor::DependencyArrayType& dependent)
+    {
+    }
+} // namespace InteractionSystemUI

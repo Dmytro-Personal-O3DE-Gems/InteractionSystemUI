@@ -21,6 +21,8 @@
     "requirements": "Requires the InteractionSystem and LyShine gems (enabled automatically through dependencies).",
     "documentation_url": "",
     "dependencies": [
+        "InteractionSystem",
+        "LyShine"
     ],
     "repo_uri": "https://github.com/Dmytro-Personal-O3DE-Gems/InteractionSystemUI",
     "compatible_engines": [

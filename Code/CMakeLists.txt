@@ -50,6 +50,14 @@ ly_add_target(
         PUBLIC
             AZ::AzCore
             AZ::AzFramework
+            # The prompt component derives from a handler of an InteractionSystem bus, so its header
+            # (included by the module) needs the InteractionSystem headers too.
+            Gem::InteractionSystem.API
+        PRIVATE
+            # LyShine is used only inside .cpp files, so it stays private to this target.
+            # UiBase.h pulls platform.h / Cry_Math.h / ISystem.h, hence CryCommon (AzFramework is above).
+            Legacy::CryCommon
+            Gem::LyShine.Clients.API
 )
 
 # Here add ${gem_name} target, it depends on the Private Object library and Public API interface

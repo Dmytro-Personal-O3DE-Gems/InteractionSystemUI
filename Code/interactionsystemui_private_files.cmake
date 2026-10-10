@@ -4,4 +4,6 @@ set(FILES
     Source/InteractionSystemUIModuleInterface.h
     Source/Clients/InteractionSystemUISystemComponent.cpp
     Source/Clients/InteractionSystemUISystemComponent.h
+    Source/InteractionPromptComponent.h
+    Source/InteractionPromptComponent.cpp
 )
