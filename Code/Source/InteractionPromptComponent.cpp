@@ -11,6 +11,9 @@
 #include <LyShine/Bus/UiCanvasBus.h>            // find element by name
 #include <LyShine/Bus/UiElementBus.h>           // show / hide
 #include <LyShine/Bus/UiTextBus.h>              // label text
+#include <LyShine/Bus/UiImageBus.h>             // ring fill amount
+
+#include <cmath>                                // std::exp for the ring decay
 
 namespace InteractionSystemUI
 {
@@ -42,6 +45,10 @@ namespace InteractionSystemUI
         m_pressOrHoldPressLabelId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldPressLabelName);
         m_pressOrHoldHoldLabelId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldHoldLabelName);
 
+        // One ring name for both rows: each lookup is limited to its own row.
+        m_holdRowRingFillId = FindChildElement(m_holdRowId, m_ringFillName);
+        m_pressOrHoldRingFillId = FindChildElement(m_pressOrHoldRowId, m_ringFillName);
+
         // Pull: the finder may already have a target (e.g. the player spawned facing a door).
         // OnTargetChanged is sent only on a change, so without this the prompt would stay empty until the target changes.
         // If the finder is not active yet, the id stays invalid and all rows are hidden (the start state).
@@ -52,12 +59,16 @@ namespace InteractionSystemUI
 
         // Push: every later change. The finder sends to its owner entity, which is this entity.
         InteractionSystem::InteractionOverlapFinderNotificationBus::Handler::BusConnect(GetEntityId());
+
+        // The interactor lives on the same entity as the finder (StartInteractionWithCurrentTarget relies on it).
+        InteractionSystem::InteractorNotificationBus::Handler::BusConnect(GetEntityId());
     }
 
     void InteractionPromptComponent::Deactivate()
     {
         AZ::TickBus::Handler::BusDisconnect();
         InteractionSystem::InteractionOverlapFinderNotificationBus::Handler::BusDisconnect();
+        InteractionSystem::InteractorNotificationBus::Handler::BusDisconnect();
 
         // The canvas is released when the UI Canvas Asset Ref deactivates (right after this component),
         // so these ids are about to become dead anyway.
@@ -68,10 +79,13 @@ namespace InteractionSystemUI
         m_holdRowLabelId.SetInvalid();
         m_pressOrHoldPressLabelId.SetInvalid();
         m_pressOrHoldHoldLabelId.SetInvalid();
+        m_holdRowRingFillId.SetInvalid();
+        m_pressOrHoldRingFillId.SetInvalid();
 
         m_targetId.SetInvalid();
         m_shownPressLabel.clear();
         m_shownHoldLabel.clear();
+        m_shownRingFill = 0.0f;
     }
 
     void InteractionPromptComponent::OnTargetChanged([[maybe_unused]] AZ::EntityId previousTargetId, AZ::EntityId newTargetId)
@@ -79,11 +93,26 @@ namespace InteractionSystemUI
         UpdatePrompt(newTargetId);
     }
 
-    void InteractionPromptComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
+    void InteractionPromptComponent::OnInteractionDenied(
+        [[maybe_unused]] AZ::EntityId targetId, [[maybe_unused]] InteractionSystem::InteractionType type)
+    {
+        ResetRing();
+    }
+
+    void InteractionPromptComponent::OnInteractionDone(
+        [[maybe_unused]] AZ::EntityId targetId, [[maybe_unused]] InteractionSystem::InteractionType type)
+    {
+        ResetRing();
+    }
+
+    void InteractionPromptComponent::OnTick(float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
     {
         // Polling instead of events: a label can change for reasons the target does not know about
         // (e.g. the player picked up a key), so asking every frame catches all of them.
         RefreshLabels(false);
+
+        // The progress changes every frame while a hold runs, so it is polled too.
+        RefreshRing(deltaTime);
     }
 
     AZ::EntityId InteractionPromptComponent::FindElement(AZ::EntityId canvasId, const AZStd::string& elementName) const
@@ -154,6 +183,9 @@ namespace InteractionSystemUI
         UiElementBus::Event(m_pressRowId, &UiElementBus::Events::SetIsEnabled, showPress);
         UiElementBus::Event(m_holdRowId, &UiElementBus::Events::SetIsEnabled, showHold);
         UiElementBus::Event(m_pressOrHoldRowId, &UiElementBus::Events::SetIsEnabled, showPressOrHold);
+
+        // The progress belonged to the previous target (the interactor cancels that attempt anyway).
+        ResetRing();
     }
 
     void InteractionPromptComponent::RefreshLabels(bool force)
@@ -193,6 +225,52 @@ namespace InteractionSystemUI
         UiTextBus::Event(pressOrHoldLabelId, &UiTextBus::Events::SetText, label);
     }
 
+    void InteractionPromptComponent::RefreshRing(float deltaTime)
+    {
+        // No interactor on this entity: EventResult leaves 0, so the ring just stays empty.
+        float realProgress = 0.0f;
+        InteractionSystem::InteractorRequestBus::EventResult(
+            realProgress, GetEntityId(), &InteractionSystem::InteractorRequests::GetHoldProgress);
+
+        float shown = m_shownRingFill;
+        if (realProgress >= shown || m_ringDecaySpeed <= 0.0f)
+        {
+            // Growing: follow the real value exactly, any lag would make the hold look slower than it is.
+            shown = realProgress;
+        }
+        else
+        {
+            // Released early: exponential decay. The same share of the remaining distance goes every second,
+            // independent of the frame rate (unlike "shown -= step", which would depend on fps).
+            shown += (realProgress - shown) * (1.0f - std::exp(-m_ringDecaySpeed * deltaTime));
+
+            // The exponent never reaches the target exactly; snap the last invisible bit.
+            if (shown - realProgress < 0.001f)
+            {
+                shown = realProgress;
+            }
+        }
+
+        // Most frames nothing changes (no hold running): skip the UI call then.
+        if (shown != m_shownRingFill)
+        {
+            SetRingFill(shown);
+        }
+    }
+
+    void InteractionPromptComponent::ResetRing()
+    {
+        SetRingFill(0.0f);
+    }
+
+    void InteractionPromptComponent::SetRingFill(float fillAmount)
+    {
+        m_shownRingFill = fillAmount;
+        // Both rings get the value, even the hidden one, same as the labels.
+        UiImageBus::Event(m_holdRowRingFillId, &UiImageBus::Events::SetFillAmount, fillAmount);
+        UiImageBus::Event(m_pressOrHoldRingFillId, &UiImageBus::Events::SetFillAmount, fillAmount);
+    }
+
     void InteractionPromptComponent::Reflect(AZ::ReflectContext* context)
     {
         if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -206,6 +284,8 @@ namespace InteractionSystemUI
                 ->Field("HoldRowLabelName", &InteractionPromptComponent::m_holdRowLabelName)
                 ->Field("PressOrHoldPressLabelName", &InteractionPromptComponent::m_pressOrHoldPressLabelName)
                 ->Field("PressOrHoldHoldLabelName", &InteractionPromptComponent::m_pressOrHoldHoldLabelName)
+                ->Field("RingFillName", &InteractionPromptComponent::m_ringFillName)
+                ->Field("RingDecaySpeed", &InteractionPromptComponent::m_ringDecaySpeed)
                 ;
 
             if (AZ::EditContext* editContext = serializeContext->GetEditContext())
@@ -230,6 +310,12 @@ namespace InteractionSystemUI
                         "Press Or Hold: Press Label", "Name of the press label text inside the Press Or Hold Row.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldHoldLabelName,
                         "Press Or Hold: Hold Label", "Name of the hold label text inside the Press Or Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_ringFillName,
+                        "Ring Fill", "Name of the hold progress image (Fill Type: Radial). Searched inside the Hold Row and inside the Press Or Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_ringDecaySpeed,
+                        "Ring Decay Speed", "How fast the ring drains after a hold is released early, in 1/s. "
+                        "Part left after t seconds = exp(-speed * t): 10 leaves 5% after 0.3 s. 0 = empty at once.")
+                        ->Attribute(AZ::Edit::Attributes::Min, 0.0f)
                     ;
             }
         }

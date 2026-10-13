@@ -5,6 +5,7 @@
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/std/string/string.h>
 #include <InteractionSystem/InteractionOverlapFinderInterface.h>
+#include <InteractionSystem/InteractorInterface.h>
 
 namespace InteractionSystemUI
 {
@@ -17,6 +18,7 @@ namespace InteractionSystemUI
     class InteractionPromptComponent
         : public AZ::Component
         , public InteractionSystem::InteractionOverlapFinderNotificationBus::Handler
+        , public InteractionSystem::InteractorNotificationBus::Handler
         , public AZ::TickBus::Handler
     {
     public:
@@ -36,6 +38,10 @@ namespace InteractionSystemUI
 
         // InteractionOverlapFinderNotificationBus
         void OnTargetChanged(AZ::EntityId previousTargetId, AZ::EntityId newTargetId) override;
+
+        // InteractorNotificationBus: an attempt finished, so the ring is emptied at once (no smooth decay)
+        void OnInteractionDenied(AZ::EntityId targetId, InteractionSystem::InteractionType type) override;
+        void OnInteractionDone(AZ::EntityId targetId, InteractionSystem::InteractionType type) override;
 
         // AZ::TickBus: connected only while there is a target
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
@@ -59,6 +65,16 @@ namespace InteractionSystemUI
         //! Writes one label to the text elements that show it (the single-mode row and the press-or-hold row).
         void SetLabelText(AZ::EntityId singleRowLabelId, AZ::EntityId pressOrHoldLabelId, const AZStd::string& label);
 
+        //! Reads the hold progress from the interactor and moves the shown value towards it:
+        //! up at once, down smoothly (a hold released early drains instead of blinking out).
+        void RefreshRing(float deltaTime);
+
+        //! Empties the ring right away. For a finished attempt or a new target: the old progress is meaningless there.
+        void ResetRing();
+
+        //! Writes the fill amount to both ring images (the hold row and the press-or-hold row).
+        void SetRingFill(float fillAmount);
+
         // Element names as they appear in the UI Editor hierarchy. Set in the inspector.
         // Row names must be unique on the canvas: the lookup returns the first match in the whole hierarchy.
         AZStd::string m_pressRowName = "PressRow";
@@ -71,6 +87,13 @@ namespace InteractionSystemUI
         AZStd::string m_pressOrHoldPressLabelName = "OrPressLabel";
         AZStd::string m_pressOrHoldHoldLabelName = "OrHoldLabel";
 
+        // The ring fill image is looked up inside the Hold Row and inside the Press Or Hold Row, by the same name.
+        AZStd::string m_ringFillName = "RingFill";
+
+        // How fast the ring drains after a hold is released early, in 1/s.
+        // Part left after t seconds = exp(-speed * t): with 10, 37% after 0.1 s and 5% after 0.3 s. 0 = drop at once.
+        float m_ringDecaySpeed = 10.0f;
+
         // Runtime only, not serialized: elements get new ids every time the canvas is loaded.
         AZ::EntityId m_pressRowId;
         AZ::EntityId m_holdRowId;
@@ -79,10 +102,13 @@ namespace InteractionSystemUI
         AZ::EntityId m_holdRowLabelId;
         AZ::EntityId m_pressOrHoldPressLabelId;
         AZ::EntityId m_pressOrHoldHoldLabelId;
+        AZ::EntityId m_holdRowRingFillId;
+        AZ::EntityId m_pressOrHoldRingFillId;
 
         // State that must survive between frames:
         AZ::EntityId m_targetId;              //!< whom to ask for labels in OnTick
         AZStd::string m_shownPressLabel;      //!< what is on screen now, to call SetText only on change
         AZStd::string m_shownHoldLabel;
+        float m_shownRingFill = 0.0f;         //!< the smoothed value on screen; the decay continues from it next frame
     };
 } // namespace InteractionSystemUI
