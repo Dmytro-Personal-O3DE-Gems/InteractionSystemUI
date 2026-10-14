@@ -85,7 +85,7 @@ namespace InteractionSystemUI
         AZStd::string m_pressRowLabelName = "PressLabel";
         AZStd::string m_holdRowLabelName = "HoldLabel";
         AZStd::string m_pressOrHoldPressLabelName = "OrPressLabel";
-        AZStd::string m_pressOrHoldHoldLabelName = "OrHoldLabel";
+        AZStd::string m_pressOrHoldHoldLabelName = "OnHoldLabel";
 
         // The ring fill image is looked up inside the Hold Row and inside the Press Or Hold Row, by the same name.
         AZStd::string m_ringFillName = "RingFill";

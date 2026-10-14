@@ -60,7 +60,7 @@ namespace InteractionSystemUI
         // Push: every later change. The finder sends to its owner entity, which is this entity.
         InteractionSystem::InteractionOverlapFinderNotificationBus::Handler::BusConnect(GetEntityId());
 
-        // The interactor lives on the same entity as the finder (StartInteractionWithCurrentTarget relies on it).
+        // The interactor sits on this entity (the player): the same address the finder reports to.
         InteractionSystem::InteractorNotificationBus::Handler::BusConnect(GetEntityId());
     }
 
