@@ -15,6 +15,8 @@ namespace InteractionSystemUI
     //! Each row has a static key hint and label texts. The labels come from the target
     //! (InteractableRequests::GetInteractableLabel) and are polled every frame while there is a target,
     //! so any change (door opened, key picked up) shows up without extra events.
+    //! Labels are translated through LocalizationContract when an implementation is active,
+    //! otherwise their default texts are shown (see InteractionSystem::LocalizedText).
     class InteractionPromptComponent
         : public AZ::Component
         , public InteractionSystem::InteractionOverlapFinderNotificationBus::Handler

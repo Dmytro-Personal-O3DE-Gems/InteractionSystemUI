@@ -18,11 +18,12 @@
         "Linux","Windows","Android","iOS"
     ],
     "icon_path": "",
-    "requirements": "Requires the InteractionSystem and LyShine gems (enabled automatically through dependencies).",
+    "requirements": "Requires the InteractionSystem, LyShine and LocalizationContract gems (enabled automatically through dependencies). Labels are translated only when a gem implementing LocalizationContract (e.g. LocalizationGem) is enabled. Otherwise their default texts are shown.",
     "documentation_url": "",
     "dependencies": [
         "InteractionSystem",
-        "LyShine"
+        "LyShine",
+        "LocalizationContract"
     ],
     "repo_uri": "https://github.com/Dmytro-Personal-O3DE-Gems/InteractionSystemUI",
     "compatible_engines": [

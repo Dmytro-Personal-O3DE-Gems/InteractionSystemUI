@@ -6,6 +6,7 @@
 #include <AzCore/RTTI/BehaviorContext.h>
 
 #include <InteractionSystem/InteractableInterface.h>   // what the target supports (InteractionInfo)
+#include <LocalizationContract/LocalizationContractBus.h> // key -> translated text
 
 #include <LyShine/Bus/World/UiCanvasRefBus.h>   // canvas id from "UI Canvas Asset Ref"
 #include <LyShine/Bus/UiCanvasBus.h>            // find element by name
@@ -19,11 +20,29 @@ namespace InteractionSystemUI
 {
     namespace
     {
-        //! Text to put on screen for a label.
-        //! TODO: translate the key through LocalizationContract first; use this fallback only when there is no translation.
-        //! Fallback order (see InteractionSystem::LocalizedText): the default text, and if that is empty, the key itself.
+        //! Text to put on screen for a label (rules in InteractionSystem::LocalizedText):
+        //! the translation of the key; without one, the default text; if that is empty too, the key itself.
+        //! Works without any localization gem: then nothing is registered in LocalizationContractInterface
+        //! and the default texts are shown.
+        //! No LocalizationContractNotificationBus subscription is needed here: labels are translated on every poll
+        //! (RefreshLabels runs every tick while there is a target), so a language change shows up on the next frame.
         AZStd::string GetDisplayText(const InteractionSystem::LocalizedText& label)
         {
+            if (label.m_key.empty())
+            {
+                return label.m_defaultText; // not localized: shown as is
+            }
+
+            // Asked every time instead of keeping the pointer: the implementation may be (un)registered at runtime.
+            if (const auto* localization = LocalizationContract::LocalizationContractInterface::Get())
+            {
+                if (AZStd::optional<AZStd::string> translated = localization->GetLocalizedString(label.m_key))
+                {
+                    return AZStd::move(*translated);
+                }
+            }
+
+            // No translation (or no localization at all). The implementation reports missing keys itself.
             return label.m_defaultText.empty() ? label.m_key : label.m_defaultText;
         }
     } // namespace

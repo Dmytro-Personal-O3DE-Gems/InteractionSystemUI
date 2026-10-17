@@ -54,6 +54,9 @@ ly_add_target(
             # (included by the module) needs the InteractionSystem headers too.
             Gem::InteractionSystem.API
         PRIVATE
+            # The localization contract is used only inside InteractionPromptComponent.cpp
+            # (no header of this gem includes it), so it stays private to this target.
+            Gem::LocalizationContract.API
             # LyShine is used only inside .cpp files, so it stays private to this target.
             # UiBase.h pulls platform.h / Cry_Math.h / ISystem.h, hence CryCommon (AzFramework is above).
             Legacy::CryCommon
