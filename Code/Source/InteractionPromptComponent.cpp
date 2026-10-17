@@ -17,6 +17,17 @@
 
 namespace InteractionSystemUI
 {
+    namespace
+    {
+        //! Text to put on screen for a label.
+        //! TODO: translate the key through LocalizationContract first; use this fallback only when there is no translation.
+        //! Fallback order (see InteractionSystem::LocalizedText): the default text, and if that is empty, the key itself.
+        AZStd::string GetDisplayText(const InteractionSystem::LocalizedText& label)
+        {
+            return label.m_defaultText.empty() ? label.m_key : label.m_defaultText;
+        }
+    } // namespace
+
     AZ_COMPONENT_IMPL(InteractionPromptComponent, "InteractionPromptComponent", "{CDB5EDAC-2546-487A-86CB-DE1322C4AFFE}");
 
     void InteractionPromptComponent::Activate()
@@ -196,24 +207,26 @@ namespace InteractionSystemUI
             return;
         }
 
-        AZStd::string pressLabel;
+        InteractionSystem::LocalizedText pressLabel;
         InteractionSystem::InteractableRequestBus::EventResult(
             pressLabel, m_targetId, &InteractionSystem::InteractableRequests::GetInteractableLabel,
             GetEntityId(), InteractionSystem::InteractionType::Press);
-        if (force || pressLabel != m_shownPressLabel)
+        const AZStd::string pressText = GetDisplayText(pressLabel);
+        if (force || pressText != m_shownPressLabel)
         {
-            SetLabelText(m_pressRowLabelId, m_pressOrHoldPressLabelId, pressLabel);
-            m_shownPressLabel = pressLabel;
+            SetLabelText(m_pressRowLabelId, m_pressOrHoldPressLabelId, pressText);
+            m_shownPressLabel = pressText;
         }
 
-        AZStd::string holdLabel;
+        InteractionSystem::LocalizedText holdLabel;
         InteractionSystem::InteractableRequestBus::EventResult(
             holdLabel, m_targetId, &InteractionSystem::InteractableRequests::GetInteractableLabel,
             GetEntityId(), InteractionSystem::InteractionType::Hold);
-        if (force || holdLabel != m_shownHoldLabel)
+        const AZStd::string holdText = GetDisplayText(holdLabel);
+        if (force || holdText != m_shownHoldLabel)
         {
-            SetLabelText(m_holdRowLabelId, m_pressOrHoldHoldLabelId, holdLabel);
-            m_shownHoldLabel = holdLabel;
+            SetLabelText(m_holdRowLabelId, m_pressOrHoldHoldLabelId, holdText);
+            m_shownHoldLabel = holdText;
         }
     }
 
