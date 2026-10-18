@@ -1,0 +1,8 @@
+<fontfamily name="NotoSans">
+    <font>
+        <file path="notosans-regular.font" />
+        <file path="notosans-bold.font" tags="b" />
+        <file path="notosans-italic.font" tags="i" />
+        <file path="notosans-bolditalic.font" tags="b,i" />
+    </font>
+</fontfamily>
