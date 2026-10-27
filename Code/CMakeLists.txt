@@ -57,6 +57,8 @@ ly_add_target(
             # The localization contract is used only inside InteractionPromptComponent.cpp
             # (no header of this gem includes it), so it stays private to this target.
             Gem::LocalizationContract.API
+            # The input hints contract is used only inside InteractionPromptComponent.cpp as well.
+            Gem::InputHintsContract.API
             # LyShine is used only inside .cpp files, so it stays private to this target.
             # UiBase.h pulls platform.h / Cry_Math.h / ISystem.h, hence CryCommon (AzFramework is above).
             Legacy::CryCommon

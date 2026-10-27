@@ -7,6 +7,7 @@
 
 #include <InteractionSystem/InteractableInterface.h>   // what the target supports (InteractionInfo)
 #include <LocalizationContract/LocalizationContractBus.h> // key -> translated text
+#include <InputHintsContract/InputHintsContractBus.h>     // action -> key to show
 
 #include <LyShine/Bus/World/UiCanvasRefBus.h>   // canvas id from "UI Canvas Asset Ref"
 #include <LyShine/Bus/UiCanvasBus.h>            // find element by name
@@ -75,6 +76,12 @@ namespace InteractionSystemUI
         m_pressOrHoldPressLabelId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldPressLabelName);
         m_pressOrHoldHoldLabelId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldHoldLabelName);
 
+        // Key hints, like the labels: "HoldKeyHint" is in two rows, each lookup is limited to its own row.
+        m_pressRowKeyHintId = FindChildElement(m_pressRowId, m_pressRowKeyHintName);
+        m_holdRowKeyHintId = FindChildElement(m_holdRowId, m_holdRowKeyHintName);
+        m_pressOrHoldPressKeyHintId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldPressKeyHintName);
+        m_pressOrHoldHoldKeyHintId = FindChildElement(m_pressOrHoldRowId, m_pressOrHoldHoldKeyHintName);
+
         // One ring name for both rows: each lookup is limited to its own row.
         m_holdRowRingFillId = FindChildElement(m_holdRowId, m_ringFillName);
         m_pressOrHoldRingFillId = FindChildElement(m_pressOrHoldRowId, m_ringFillName);
@@ -109,12 +116,17 @@ namespace InteractionSystemUI
         m_holdRowLabelId.SetInvalid();
         m_pressOrHoldPressLabelId.SetInvalid();
         m_pressOrHoldHoldLabelId.SetInvalid();
+        m_pressRowKeyHintId.SetInvalid();
+        m_holdRowKeyHintId.SetInvalid();
+        m_pressOrHoldPressKeyHintId.SetInvalid();
+        m_pressOrHoldHoldKeyHintId.SetInvalid();
         m_holdRowRingFillId.SetInvalid();
         m_pressOrHoldRingFillId.SetInvalid();
 
         m_targetId.SetInvalid();
         m_shownPressLabel.clear();
         m_shownHoldLabel.clear();
+        m_shownKeyHint.clear(); // the canvas is reloaded on the next activation, with its own text
         m_shownRingFill = 0.0f;
     }
 
@@ -140,6 +152,9 @@ namespace InteractionSystemUI
         // Polling instead of events: a label can change for reasons the target does not know about
         // (e.g. the player picked up a key), so asking every frame catches all of them.
         RefreshLabels(false);
+
+        // The key can change at any time (rebinding, another device), so it is polled like the labels.
+        RefreshKeyHint();
 
         // The progress changes every frame while a hold runs, so it is polled too.
         RefreshRing(deltaTime);
@@ -201,6 +216,7 @@ namespace InteractionSystemUI
             // What is on screen belongs to the previous target: write the new labels unconditionally,
             // even if the text happens to be the same. Done before showing the row, so no stale frame is visible.
             RefreshLabels(true);
+            RefreshKeyHint();
             AZ::TickBus::Handler::BusConnect(); // connecting twice is a no-op
         }
         else
@@ -247,6 +263,32 @@ namespace InteractionSystemUI
             SetLabelText(m_holdRowLabelId, m_pressOrHoldHoldLabelId, holdText);
             m_shownHoldLabel = holdText;
         }
+    }
+
+    void InteractionPromptComponent::RefreshKeyHint()
+    {
+        // No implementation (a project without rebinding): keep what the canvas shows.
+        // Asked every time instead of keeping the pointer: the implementation may be (un)registered at runtime.
+        const auto* inputHints = InputHintsContract::InputHintsContractInterface::Get();
+        if (!inputHints)
+        {
+            return;
+        }
+
+        // The same action for every row and every target: press and hold are the same key.
+        const AZStd::optional<InputHintsContract::InputHint> hint = inputHints->GetInputHint(m_interactActionName);
+        const AZStd::string& keyText = hint ? hint->m_text : m_unboundKeyText;
+        if (keyText == m_shownKeyHint)
+        {
+            return;
+        }
+
+        // All four elements, even in hidden rows: then switching rows never shows an outdated key.
+        UiTextBus::Event(m_pressRowKeyHintId, &UiTextBus::Events::SetText, keyText);
+        UiTextBus::Event(m_holdRowKeyHintId, &UiTextBus::Events::SetText, keyText);
+        UiTextBus::Event(m_pressOrHoldPressKeyHintId, &UiTextBus::Events::SetText, keyText);
+        UiTextBus::Event(m_pressOrHoldHoldKeyHintId, &UiTextBus::Events::SetText, keyText);
+        m_shownKeyHint = keyText;
     }
 
     void InteractionPromptComponent::SetLabelText(
@@ -316,6 +358,12 @@ namespace InteractionSystemUI
                 ->Field("HoldRowLabelName", &InteractionPromptComponent::m_holdRowLabelName)
                 ->Field("PressOrHoldPressLabelName", &InteractionPromptComponent::m_pressOrHoldPressLabelName)
                 ->Field("PressOrHoldHoldLabelName", &InteractionPromptComponent::m_pressOrHoldHoldLabelName)
+                ->Field("PressRowKeyHintName", &InteractionPromptComponent::m_pressRowKeyHintName)
+                ->Field("HoldRowKeyHintName", &InteractionPromptComponent::m_holdRowKeyHintName)
+                ->Field("PressOrHoldPressKeyHintName", &InteractionPromptComponent::m_pressOrHoldPressKeyHintName)
+                ->Field("PressOrHoldHoldKeyHintName", &InteractionPromptComponent::m_pressOrHoldHoldKeyHintName)
+                ->Field("InteractActionName", &InteractionPromptComponent::m_interactActionName)
+                ->Field("UnboundKeyText", &InteractionPromptComponent::m_unboundKeyText)
                 ->Field("RingFillName", &InteractionPromptComponent::m_ringFillName)
                 ->Field("RingDecaySpeed", &InteractionPromptComponent::m_ringDecaySpeed)
                 ;
@@ -342,6 +390,20 @@ namespace InteractionSystemUI
                         "Press Or Hold: Press Label", "Name of the press label text inside the Press Or Hold Row.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldHoldLabelName,
                         "Press Or Hold: Hold Label", "Name of the hold label text inside the Press Or Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressRowKeyHintName,
+                        "Press Row Key Hint", "Name of the key hint text inside the Press Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_holdRowKeyHintName,
+                        "Hold Row Key Hint", "Name of the key hint text inside the Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldPressKeyHintName,
+                        "Press Or Hold: Press Key Hint", "Name of the press key hint text inside the Press Or Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_pressOrHoldHoldKeyHintName,
+                        "Press Or Hold: Hold Key Hint", "Name of the hold key hint text inside the Press Or Hold Row.")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_interactActionName,
+                        "Interact Action", "Input action whose key is shown in the key hints. Must match the action "
+                        "the interactor listens to (InteractionSystem::InteractActionName by default).")
+                    ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_unboundKeyText,
+                        "Unbound Key Text", "Shown in the key hints when the input hints implementation reports no key "
+                        "for the action. Without any implementation the canvas text is kept.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_ringFillName,
                         "Ring Fill", "Name of the hold progress image (Fill Type: Radial). Searched inside the Hold Row and inside the Press Or Hold Row.")
                     ->DataElement(AZ::Edit::UIHandlers::Default, &InteractionPromptComponent::m_ringDecaySpeed,

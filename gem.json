@@ -15,19 +15,21 @@
         "InteractionSystemUI"
     ],
     "platforms": [
-        "Linux","Windows","Android","iOS"
+        "Linux",
+        "Windows",
+        "Android",
+        "iOS"
     ],
     "icon_path": "",
-    "requirements": "Requires the InteractionSystem, LyShine and LocalizationContract gems (enabled automatically through dependencies). Labels are translated only when a gem implementing LocalizationContract (e.g. LocalizationGem) is enabled. Otherwise their default texts are shown.",
+    "requirements": "Requires the InteractionSystem, LyShine, LocalizationContract and InputHintsContract gems (enabled automatically through dependencies). Labels are translated only when a gem implementing LocalizationContract (e.g. LocalizationGem) is enabled, otherwise their default texts are shown. The key hint shows the bound key only when a gem implementing InputHintsContract (e.g. RebindableInput) is enabled, otherwise the text set in the canvas is shown.",
     "documentation_url": "",
     "dependencies": [
         "InteractionSystem",
         "LyShine",
-        "LocalizationContract"
+        "LocalizationContract",
+        "InputHintsContract"
     ],
     "repo_uri": "https://github.com/Dmytro-Personal-O3DE-Gems/InteractionSystemUI",
-    "compatible_engines": [
-    ],
-    "engine_api_dependencies":[
-    ]
+    "compatible_engines": [],
+    "engine_api_dependencies": []
 }

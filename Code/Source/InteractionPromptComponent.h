@@ -6,6 +6,7 @@
 #include <AzCore/std/string/string.h>
 #include <InteractionSystem/InteractionOverlapFinderInterface.h>
 #include <InteractionSystem/InteractorInterface.h>
+#include <InteractionSystem/InteractorInputInterface.h> // InteractActionName
 
 namespace InteractionSystemUI
 {
@@ -17,6 +18,8 @@ namespace InteractionSystemUI
     //! so any change (door opened, key picked up) shows up without extra events.
     //! Labels are translated through LocalizationContract when an implementation is active,
     //! otherwise their default texts are shown (see InteractionSystem::LocalizedText).
+    //! The key hint is asked from InputHintsContract and polled together with the labels.
+    //! Without an implementation the key hint text set in the canvas stays as is.
     class InteractionPromptComponent
         : public AZ::Component
         , public InteractionSystem::InteractionOverlapFinderNotificationBus::Handler
@@ -64,6 +67,10 @@ namespace InteractionSystemUI
         //! force: write even if the text equals the last shown one (used right after the target changed).
         void RefreshLabels(bool force);
 
+        //! Asks InputHintsContract which key is bound to the interact action and writes it to the key hint elements
+        //! if it changed. No implementation: the canvas text stays. An implementation without a binding: m_unboundKeyText.
+        void RefreshKeyHint();
+
         //! Writes one label to the text elements that show it (the single-mode row and the press-or-hold row).
         void SetLabelText(AZ::EntityId singleRowLabelId, AZ::EntityId pressOrHoldLabelId, const AZStd::string& label);
 
@@ -89,6 +96,18 @@ namespace InteractionSystemUI
         AZStd::string m_pressOrHoldPressLabelName = "OrPressLabel";
         AZStd::string m_pressOrHoldHoldLabelName = "OnHoldLabel";
 
+        // Key hint names, looked up inside their rows like the labels (the same name may be reused in different rows).
+        AZStd::string m_pressRowKeyHintName = "PressKeyHint";
+        AZStd::string m_holdRowKeyHintName = "HoldKeyHint";
+        AZStd::string m_pressOrHoldPressKeyHintName = "OrKeyHint";
+        AZStd::string m_pressOrHoldHoldKeyHintName = "HoldKeyHint";
+
+        // The input action whose key is shown. Defaults to the action InteractorInputComponent listens to.
+        AZStd::string m_interactActionName = InteractionSystem::InteractActionName;
+
+        // Shown when the input hints implementation reports no key for the action (the action is not bound).
+        AZStd::string m_unboundKeyText = "-";
+
         // The ring fill image is looked up inside the Hold Row and inside the Press Or Hold Row, by the same name.
         AZStd::string m_ringFillName = "RingFill";
 
@@ -104,6 +123,10 @@ namespace InteractionSystemUI
         AZ::EntityId m_holdRowLabelId;
         AZ::EntityId m_pressOrHoldPressLabelId;
         AZ::EntityId m_pressOrHoldHoldLabelId;
+        AZ::EntityId m_pressRowKeyHintId;
+        AZ::EntityId m_holdRowKeyHintId;
+        AZ::EntityId m_pressOrHoldPressKeyHintId;
+        AZ::EntityId m_pressOrHoldHoldKeyHintId;
         AZ::EntityId m_holdRowRingFillId;
         AZ::EntityId m_pressOrHoldRingFillId;
 
@@ -111,6 +134,7 @@ namespace InteractionSystemUI
         AZ::EntityId m_targetId;              //!< whom to ask for labels in OnTick
         AZStd::string m_shownPressLabel;      //!< what is on screen now, to call SetText only on change
         AZStd::string m_shownHoldLabel;
+        AZStd::string m_shownKeyHint;         //!< empty = nothing written yet, the canvas text is on screen
         float m_shownRingFill = 0.0f;         //!< the smoothed value on screen; the decay continues from it next frame
     };
 } // namespace InteractionSystemUI
