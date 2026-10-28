@@ -5,7 +5,8 @@ An optional on-screen **interaction prompt** for the [Interaction System](https:
 When the player looks at an interactable, the prompt shows:
 
 - **which actions are possible**: only press, only hold, or both;
-- **the label of each action** ("Open", "Unlock", …), taken from the object itself and updated live;
+- **the label of each action** ("Open", "Unlock", …), taken from the object itself, translated, and updated live;
+- **the key to press** ("E", "Space", "A" on a gamepad), as currently bound, through [InputHintsContract](https://github.com/Dmytro-Personal-O3DE-Gems/InputHintsContract);
 - **a progress ring** that fills while a hold is in progress.
 
 When there is no target, nothing is shown.
@@ -31,7 +32,8 @@ The core gem knows nothing about UI. It only exposes data through its buses, and
 | | |
 |---|---|
 | Engine | O3DE **26.05** (developed and tested against tag `2605.0`) |
-| Gems | **InteractionSystem** and **LyShine** (both declared as dependencies in `gem.json`) |
+| Gems | **InteractionSystem**, **LyShine**, **LocalizationContract** and **InputHintsContract** (declared as dependencies in `gem.json`, enabled automatically) |
+| Optional | a gem implementing LocalizationContract (e.g. [LocalizationGem](https://github.com/Dmytro-Personal-O3DE-Gems/LocalizationGem)) to translate the labels; a gem implementing InputHintsContract (e.g. [RebindableInput](https://github.com/Dmytro-Personal-O3DE-Gems/RebindableInput)) to show the bound key. Without them the default labels and the key text of the canvas are shown. |
 
 The player must already be set up for interactions: **Interactor**, **Interactor Input**, and an **Interaction Overlap Finder** whose *Owner Entity* is the player. See the core gem's README.
 
@@ -80,7 +82,18 @@ The prompt requires *UI Canvas Asset Ref* on the same entity: without it the edi
 | Hold Row Label | `HoldLabel` | inside *Hold Row* |
 | Press Or Hold: Press Label | `OrPressLabel` | inside *Press Or Hold Row* |
 | Press Or Hold: Hold Label | `OnHoldLabel` | inside *Press Or Hold Row* |
+| Press Row Key Hint | `PressKeyHint` | inside *Press Row* |
+| Hold Row Key Hint | `HoldKeyHint` | inside *Hold Row* |
+| Press Or Hold: Press Key Hint | `OrKeyHint` | inside *Press Or Hold Row* |
+| Press Or Hold: Hold Key Hint | `HoldKeyHint` | inside *Press Or Hold Row* |
 | Ring Fill | `RingFill` | inside *Hold Row* **and** inside *Press Or Hold Row* |
+
+**Key hint.**
+
+| Setting | Default | |
+|---|---|---|
+| Interact Action | `Interact` | the input action whose key is shown; must match the action the interactor listens to (`InteractionSystem::InteractActionName`) |
+| Unbound Key Text | `-` | shown when the input hints implementation reports no key for the action (e.g. no gamepad key while the player uses a gamepad) |
 
 - **Rows** are searched in the whole canvas and the first match is used, so row names must be **unique on the canvas**.
 - **Labels and rings** are searched only inside their row, so their names only need to be unique **within the row**. The same `RingFill` name works for both rings.
@@ -97,12 +110,12 @@ The bundled canvas has one row per interaction mode. Exactly one row is visible 
 
 ```
 PressRow                 shown for "Press" objects
-├── PressKeyHint         "[E]"
+├── PressKeyHint         "E" (replaced by the bound key)
 └── PressLabel           label of the press action
 HoldRow                  shown for "Hold" objects
 ├── RingBackground       ring behind the key hint
 ├── RingFill             hold progress, drawn on top of the background
-├── HoldKeyHint          "[E]", centred inside the ring
+├── HoldKeyHint          "E", centred inside the ring
 └── HoldLabel            label of the hold action
 PressOrHoldRow           shown for "Press or hold" objects
 ├── OrPressRow
@@ -115,7 +128,7 @@ PressOrHoldRow           shown for "Press or hold" objects
     └── OnHoldLabel      label of the hold action
 ```
 
-Only the three top-level rows, the four labels and `RingFill` are looked up by the component. The other elements (key hints, ring backgrounds, the inner rows) are pure layout, and their names do not matter to the code.
+The component looks up the three top-level rows, the four labels, the four key hints and `RingFill`. The other elements (ring backgrounds, the inner rows) are pure layout, and their names do not matter to the code.
 
 **Why a separate row per mode** instead of one row with parts hidden: a LyShine **Layout Row** keeps space for its disabled children. Hiding "Hold" inside a shared row leaves a gap where it was.
 
@@ -141,6 +154,10 @@ Only the three top-level rows, the four labels and `RingFill` are looked up by t
 - Polling catches label changes the object cannot announce. For example, the player picked up a key and "Open" becomes "Unlock".
 - The text is written only when it changes.
 - Without a target the component is not ticking at all.
+
+**Translation.** Labels are pairs of a localization key and a default text. Each frame they are translated through `LocalizationContractInterface`; without a translation (or without any localization gem) the default text is shown. A language change therefore shows up on the next frame, no notification is needed.
+
+**Key hint.** While there is a target, every frame it asks `InputHintsContractInterface` for the key of *Interact Action*. The answer is a localization key + English text ("input.key.space" / "Space"; letters have no key) and is translated by the same rules as the labels. No implementation: the canvas text stays as it is. No key for the action: *Unbound Key Text*. The text is written only when it changes; all four key hints get it, even in hidden rows.
 
 **Progress ring.** While there is a target, every frame it reads `InteractorRequests::GetHoldProgress()`:
 
@@ -177,12 +194,11 @@ All warnings are written to `<Project>/user/log/Editor.log` with the prefix `(In
 
 ## Status and roadmap
 
-Tested in the editor with a player character: all three modes, labels (default and overridden from Script Canvas), live label updates, the progress ring (fill, smooth drain, instant reset).
+Tested in the editor with a player character: all three modes, labels (default and overridden from Script Canvas), live label updates, the progress ring (fill, smooth drain, instant reset), translated labels with [LocalizationGem](https://github.com/Dmytro-Personal-O3DE-Gems/LocalizationGem), the bound key with [RebindableInput](https://github.com/Dmytro-Personal-O3DE-Gems/RebindableInput) (keyboard and gamepad, translated key names, rebinding at runtime).
 
 Not done yet:
-- **Key hint is static text** (`[E]` in the canvas). The engine's input bindings offer no API to read which key an action is bound to, so key rebinding and gamepad glyphs need a separate input-hint system.
 - **Display name** of the object (`InteractionInfo::m_displayName`) is not shown yet.
-- **Localization**: labels are plain strings for now and will become localization keys.
+- **Gamepad button icons** instead of text: waits for icons in InputHintsContract.
 
 ## License
 

@@ -277,7 +277,16 @@ namespace InteractionSystemUI
 
         // The same action for every row and every target: press and hold are the same key.
         const AZStd::optional<InputHintsContract::InputHint> hint = inputHints->GetInputHint(m_interactActionName);
-        const AZStd::string& keyText = hint ? hint->m_text : m_unboundKeyText;
+        // Same rules as the labels: the hint is a key + English text, translated here (on every poll, so a language
+        // change shows up on the next frame).
+        AZStd::string keyText = m_unboundKeyText;
+        if (hint)
+        {
+            InteractionSystem::LocalizedText keyLabel;
+            keyLabel.m_key = hint->m_key;
+            keyLabel.m_defaultText = hint->m_defaultText;
+            keyText = GetDisplayText(keyLabel);
+        }
         if (keyText == m_shownKeyHint)
         {
             return;
